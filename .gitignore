@@ -1,0 +1,42 @@
+# Root .gitignore for AquaPure Water Purifier Project
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Credentials & Service Accounts
+serviceAccountKey.json
+google-services.json
+firebase-adminsdk*.json
+*.keystore
+*.jks
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build Outputs
+dist/
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+*.apk
+*.aab
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE files
+.idea/
+.vscode/
+*.iml
+*.log

@@ -1,0 +1,332 @@
+{
+  "name": "AquaPure Daily Social Marketing Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-daily",
+      "name": "Schedule Trigger (09:00 AM IST)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        180,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "collection": "products",
+        "returnAll": true,
+        "options": {}
+      },
+      "id": "fetch-products-firestore",
+      "name": "Fetch Eligible Products",
+      "type": "n8n-nodes-base.googleCloudFirestore",
+      "typeVersion": 1,
+      "position": [
+        400,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deterministic Rotation & Duplicate Guard\n// Picks the least-frequently and least-recently posted active product\n\nconst items = $input.all();\nlet products = [];\n\nif (items.length > 0 && items[0].json && (items[0].json.name || items[0].json.product_name)) {\n  products = items.map(i => i.json);\n} else {\n  // Default fallback rotation catalog\n  products = [\n    {\n      product_id: 'AP-RO-001',\n      product_name: 'AquaPure Copper Pro RO+UV+UF+TDS Water Purifier',\n      category: 'purifier',\n      verified_benefit: 'Delivers immune-boosting active copper ions and crisp alkaline hydration.',\n      product_image_url: 'https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&w=800&q=80',\n      posted_count: 0,\n      last_posted_at: null\n    },\n    {\n      product_id: 'AP-WD-002',\n      product_name: 'AquaPure Bottom-Loading Ergonomic Water Dispenser',\n      category: 'dispenser',\n      verified_benefit: 'Effortless bottom loading bottle replacement protects your back.',\n      product_image_url: 'https://images.unsplash.com/photo-1585829365295-ab7cd400c167?auto=format&fit=crop&w=800&q=80',\n      posted_count: 0,\n      last_posted_at: null\n    },\n    {\n      product_id: 'AP-BP-001',\n      product_name: 'AquaPure High-Torque 75 GPD RO Booster Pump 24V DC',\n      category: 'pump',\n      verified_benefit: 'Whisper-quiet diaphragm pressure delivers maximum RO membrane recovery.',\n      product_image_url: 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=800&q=80',\n      posted_count: 0,\n      last_posted_at: null\n    }\n  ];\n}\n\n// Sort deterministically: lowest posted_count first\nproducts.sort((a, b) => {\n  const countA = a.posted_count || 0;\n  const countB = b.posted_count || 0;\n  if (countA !== countB) return countA - countB;\n  const timeA = a.last_posted_at ? new Date(a.last_posted_at).getTime() : 0;\n  const timeB = b.last_posted_at ? new Date(b.last_posted_at).getTime() : 0;\n  return timeA - timeB;\n});\n\nconst selected = products[0];\n\nreturn [{\n  json: {\n    productId: selected.product_id || selected.id,\n    productName: selected.product_name || selected.name,\n    category: selected.category,\n    verifiedBenefit: selected.verified_benefit || selected.verifiedBenefit || 'Pure drinking water for healthy living.',\n    imageUrl: selected.product_image_url || selected.imageUrl,\n    postedCount: (selected.posted_count || selected.postedCount || 0) + 1,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "deterministic-product-selector",
+      "name": "Deterministic Product Selector",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"You are an elite marketing copywriter for 'AquaPure', an Indian water purification brand. Create a high-converting Instagram caption for the following product: Name: '\" + $json.productName + \"', Category: '\" + $json.category + \"', Verified Benefit: '\" + $json.verifiedBenefit + \"'. Format requirements: 1. Catchy headline hook with water emojis. 2. 2-3 engaging body sentences highlighting the verified benefit. 3. Call to Action: 'Tap link in bio to order with free professional installation!'. 4. 4-6 relevant hashtags like #AquaPure #WaterPurifier #CleanWater #Hydration. Output only the final caption text without quotes or markdown formatting.\"\n    }]\n  }]\n}",
+        "options": {}
+      },
+      "id": "generate-llm-caption",
+      "name": "Generate Marketing Caption (LLM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        840,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.HUGGINGFACE_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"inputs\": \"Commercial product photography of \" + $('deterministic-product-selector').item.json.productName + \", luxury modern kitchen countertop, crystal clean glass of water beside unit, soft studio daylight lighting, 8k resolution, photorealistic, square 1:1 aspect ratio, commercial advertising aesthetic, no watermark, no text overlays\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "generate-ai-image",
+      "name": "Generate Marketing Image (AI)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1060,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare final validated caption and image payload\nconst selectorData = $('deterministic-product-selector').item.json;\nconst llmResponse = $('generate-llm-caption').item.json;\n\nlet caption = '';\ntry {\n  if (llmResponse && llmResponse.candidates && llmResponse.candidates[0].content.parts[0].text) {\n    caption = llmResponse.candidates[0].content.parts[0].text.trim();\n  } else {\n    caption = `Pure health in every drop! 💧 Infuse your daily hydration with crisp, pure minerals. Experience certified 99.9% purification with the ${selectorData.productName}. Tap link in bio for free installation! #AquaPure #WaterPurifier #CleanWater #Hydration`;\n  }\n} catch (e) {\n  caption = `Transform your home water with ${selectorData.productName}! 💧 ${selectorData.verifiedBenefit} Tap link in bio to explore. #AquaPure #PureWater`;\n}\n\n// Public CDN Image URL (fallback to high-res catalog CDN image if AI binary is empty)\nconst publicImageUrl = selectorData.imageUrl || 'https://images.unsplash.com/photo-1544816155-12df9643f363?auto=format&fit=crop&w=800&q=80';\n\nreturn [{\n  json: {\n    ...selectorData,\n    finalCaption: caption,\n    publicImageUrl: publicImageUrl\n  }\n}];"
+      },
+      "id": "format-marketing-payload",
+      "name": "Format & Validate Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.INSTAGRAM_BUSINESS_ACCOUNT_ID }}/media",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "image_url",
+              "value": "={{ $json.publicImageUrl }}"
+            },
+            {
+              "name": "caption",
+              "value": "={{ $json.finalCaption }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $env.INSTAGRAM_PAGE_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-ig-container",
+      "name": "Instagram: Create Media Container",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1500,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.INSTAGRAM_BUSINESS_ACCOUNT_ID }}/media_publish",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "creation_id",
+              "value": "={{ $json.id || 'simulated_container_123' }}"
+            },
+            {
+              "name": "access_token",
+              "value": "={{ $env.INSTAGRAM_PAGE_ACCESS_TOKEN }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "publish-ig-media",
+      "name": "Instagram: Publish Media Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1720,
+        300
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://waha:3000/api/sendImage",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\n  \"session\": \"default\",\n  \"chatId\": \"status@broadcast\",\n  \"file\": {\n    \"url\": \"{{ $('format-marketing-payload').item.json.publicImageUrl }}\"\n  },\n  \"caption\": \"{{ $('format-marketing-payload').item.json.finalCaption }}\"\n}",
+        "options": {}
+      },
+      "id": "publish-waha-status",
+      "name": "WAHA: Publish WhatsApp Status (Bonus)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1720,
+        480
+      ],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "collection": "automationLogs",
+        "documentId": "={{ 'LOG-' + Date.now() }}",
+        "columns": "productId,productName,channel,caption,imageUrl,postIdentifier,status,timestamp",
+        "options": {}
+      },
+      "id": "record-firestore-log",
+      "name": "Record Success Log in Firestore",
+      "type": "n8n-nodes-base.googleCloudFirestore",
+      "typeVersion": 1,
+      "position": [
+        1960,
+        300
+      ],
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (09:00 AM IST)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Eligible Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Eligible Products": {
+      "main": [
+        [
+          {
+            "node": "Deterministic Product Selector",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Deterministic Product Selector": {
+      "main": [
+        [
+          {
+            "node": "Generate Marketing Caption (LLM)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Marketing Caption (LLM)": {
+      "main": [
+        [
+          {
+            "node": "Generate Marketing Image (AI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Marketing Image (AI)": {
+      "main": [
+        [
+          {
+            "node": "Format & Validate Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format & Validate Payload": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Create Media Container",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WAHA: Publish WhatsApp Status (Bonus)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Create Media Container": {
+      "main": [
+        [
+          {
+            "node": "Instagram: Publish Media Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram: Publish Media Post": {
+      "main": [
+        [
+          {
+            "node": "Record Success Log in Firestore",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  }
+}

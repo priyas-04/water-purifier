@@ -1,0 +1,124 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.role == 'admin' ||
+        getUserData().role == 'admin'
+      );
+    }
+
+    function isApprovedDealer() {
+      return isAuthenticated() && (
+        getUserData().role == 'dealer' &&
+        getUserData().dealerStatus == 'approved'
+      );
+    }
+
+    // --- USERS COLLECTION ---
+    match /users/{userId} {
+      // Any authenticated user can read their own profile; Admin can read all
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Users can register their own document
+      // Cannot set role to 'admin' upon registration
+      allow create: if isOwner(userId) &&
+        request.resource.data.role in ['customer', 'dealer'] &&
+        (request.resource.data.role == 'dealer' ? request.resource.data.dealerStatus == 'pending' : true);
+
+      // Users can update basic profile info (fullName, phone, address, referralCode)
+      // Users CANNOT change their role or dealerStatus
+      allow update: if (isOwner(userId) &&
+        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'dealerStatus', 'uid']))
+        || isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // --- PRODUCTS COLLECTION ---
+    match /products/{productId} {
+      // Publicly readable for active products or authenticated users
+      allow read: if resource.data.isActive == true || isAdmin();
+
+      // Only administrators can create, update, or delete products
+      allow create, update, delete: if isAdmin();
+    }
+
+    // --- ORDERS COLLECTION ---
+    match /orders/{orderId} {
+      // Customers & Dealers can only read their own orders; Admins read all
+      allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin();
+
+      // Authenticated users can place orders for themselves
+      // If wholesale order, user must be approved dealer
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.orderStatus == 'placed' &&
+        (request.resource.data.role == 'dealer' ? isApprovedDealer() : true);
+
+      // Only Admins can modify order status or order details; customers can only cancel if placed
+      allow update: if isAdmin() || (
+        isOwner(resource.data.userId) &&
+        resource.data.orderStatus == 'placed' &&
+        request.resource.data.orderStatus == 'cancelled' &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['orderStatus', 'updatedAt', 'statusHistory'])
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // --- SERVICE BOOKINGS ---
+    match /serviceBookings/{bookingId} {
+      // User can read their own service bookings; Admins read all
+      allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin();
+
+      // Authenticated users can create service bookings
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.status in ['submitted', 'scheduled'];
+
+      // Only Admin can update service status or assign technician
+      allow update, delete: if isAdmin();
+    }
+
+    // --- NOTIFICATIONS ---
+    match /notifications/{notificationId} {
+      allow read: if (isAuthenticated() && resource.data.userId == request.auth.uid) || isAdmin();
+      // Allow marking as read by recipient
+      allow update: if isOwner(resource.data.userId) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow create, delete: if isAdmin();
+    }
+
+    // --- AUTOMATION LOGS ---
+    match /automationLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // --- REFERRALS ---
+    match /referrals/{referralId} {
+      allow read: if isAuthenticated() && (
+        resource.data.referrerId == request.auth.uid ||
+        resource.data.refereeId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isAuthenticated();
+      allow update, delete: if isAdmin();
+    }
+  }
+}

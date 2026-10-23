@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # n8n Automation Engine
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: aquapure_n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+      - GENERIC_TIMEZONE=Asia/Kolkata
+      - TZ=Asia/Kolkata
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n-workflow.json:/backup/n8n-workflow.json:ro
+    env_file:
+      - .env
+
+  # WAHA (WhatsApp HTTP API) - Bonus WhatsApp Status Automation
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: aquapure_waha
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - WAHA_LOG_LEVEL=info
+      - WAHA_ZIP_LOGS=true
+      - WHATSAPP_DEFAULT_ENGINE=NOWEB
+    volumes:
+      - waha_data:/app/.sessions
+
+volumes:
+  n8n_data:
+  waha_data:
