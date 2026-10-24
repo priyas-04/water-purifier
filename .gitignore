@@ -23,6 +23,7 @@ node_modules/
 # Build Outputs
 dist/
 build/
+.gradle/
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
@@ -35,8 +36,9 @@ build/
 Thumbs.db
 desktop.ini
 
-# IDE files
+# IDE & Deployment files
 .idea/
 .vscode/
+.vercel/
 *.iml
 *.log
